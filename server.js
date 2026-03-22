@@ -12,27 +12,31 @@ mongoose.connect(process.env.MONGO_URI, { dbName: 'Vedougyved' })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// ── Schema — a valódi struktúra alapján ───────────────────
+// ── Schema ─────────────────────────────────────────────────
 const FeladatSchema = new mongoose.Schema({
   subjectId: String,
   title:     String,
   question:  String,
   example:   String,
   hint:      String,
-  testCases: [
-    {
-      id:   String,
-      code: String
-    }
-  ]
+  testCases: [{ id: String, code: String }]
 });
-
-// 'questions' = a MongoDB collection neve
 const Feladat = mongoose.model('Feladat', FeladatSchema, 'questions');
 
 // ── GET / — health check ───────────────────────────────────
 app.get('/', (req, res) => {
   res.json({ statusz: 'működik' });
+});
+
+// ── GET /subjects — proxy a Dashboard backendhez ──────────
+app.get('/subjects', async (req, res) => {
+  try {
+    const response = await fetch('https://vedo-ugyved-dashboard-backend.onrender.com/api/dashboard/subjects');
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 // ── GET /question — összes feladat ────────────────────────
