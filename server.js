@@ -2,7 +2,6 @@ require('dotenv').config({ path: './.env' });
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -55,6 +54,28 @@ app.post('/subjects', async (req, res) => {
   }
 });
 
+// ── PUT /subjects/:id — tantárgy frissítése ───────────────
+app.put('/subjects/:id', async (req, res) => {
+  try {
+    const subject = await Subject.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!subject) return res.status(404).json({ message: 'Tantárgy nem található' });
+    res.json(subject);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── DELETE /subjects/:id — tantárgy törlése ───────────────
+app.delete('/subjects/:id', async (req, res) => {
+  try {
+    const subject = await Subject.findByIdAndDelete(req.params.id);
+    if (!subject) return res.status(404).json({ message: 'Tantárgy nem található' });
+    res.json({ message: 'Tantárgy törölve', id: req.params.id });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ── GET /question — összes feladat ────────────────────────
 app.get('/question', async (req, res) => {
   try {
@@ -82,6 +103,28 @@ app.post('/question', async (req, res) => {
     const ujFeladat = new Feladat(req.body);
     await ujFeladat.save();
     res.json(ujFeladat);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── PUT /question/:id — feladat frissítése ────────────────
+app.put('/question/:id', async (req, res) => {
+  try {
+    const feladat = await Feladat.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!feladat) return res.status(404).json({ message: 'Feladat nem található' });
+    res.json(feladat);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── DELETE /question/:id — feladat törlése ────────────────
+app.delete('/question/:id', async (req, res) => {
+  try {
+    const feladat = await Feladat.findByIdAndDelete(req.params.id);
+    if (!feladat) return res.status(404).json({ message: 'Feladat nem található' });
+    res.json({ message: 'Feladat törölve', id: req.params.id });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
