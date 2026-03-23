@@ -12,7 +12,7 @@ mongoose.connect(process.env.MONGO_URI, { dbName: 'Vedougyved' })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// ── Schema ─────────────────────────────────────────────────
+// ── Schemák ────────────────────────────────────────────────
 const FeladatSchema = new mongoose.Schema({
   subjectId: String,
   title:     String,
@@ -22,6 +22,11 @@ const FeladatSchema = new mongoose.Schema({
   testCases: [{ id: String, code: String }]
 });
 const Feladat = mongoose.model('Feladat', FeladatSchema, 'questions');
+
+const SubjectSchema = new mongoose.Schema({
+  name: { type: String, required: true }
+});
+const Subject = mongoose.model('Subject', SubjectSchema, 'subjects');
 
 // ── GET / — health check ───────────────────────────────────
 app.get('/', (req, res) => {
@@ -34,6 +39,17 @@ app.get('/subjects', async (req, res) => {
     const response = await fetch('https://vedo-ugyved-dashboard-backend.onrender.com/api/dashboard/subjects');
     const data = await response.json();
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /subjects — új tantárgy létrehozása ──────────────
+app.post('/subjects', async (req, res) => {
+  try {
+    const ujSubject = new Subject(req.body);
+    await ujSubject.save();
+    res.json(ujSubject);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
