@@ -18,7 +18,7 @@ const FeladatSchema = new mongoose.Schema({
   question:  String,
   example:   String,
   hint:      String,
-  testCases: [{ id: String, code: String }]
+  test:      String,
 });
 const Feladat = mongoose.model('Feladat', FeladatSchema, 'questions');
 
@@ -133,3 +133,4 @@ app.delete('/question/:id', async (req, res) => {
 // ── Backend indítása ───────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Backend fut a ${PORT}-as porton`));
+
