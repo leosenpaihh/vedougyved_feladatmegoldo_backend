@@ -19,11 +19,16 @@ const FeladatSchema = new mongoose.Schema({
   example:   String,
   hint:      String,
   test:      String,
+  point:     { type: Number, default: 0 },
+  order:     { type: Number, default: 0 }
 });
 const Feladat = mongoose.model('Feladat', FeladatSchema, 'questions');
 
 const SubjectSchema = new mongoose.Schema({
-  name: { type: String, required: true }
+  name: { type: String, required: true },
+  subjectId: { type: String, unique: true },  // Az eredeti backend azonosítója
+  languages: [{ name: String }],  
+  imageURL: { type: String, default: '' }
 });
 const Subject = mongoose.model('Subject', SubjectSchema, 'subjects');
 
@@ -32,12 +37,68 @@ app.get('/', (req, res) => {
   res.json({ statusz: 'működik' });
 });
 
-// ── GET /subjects — proxy a Dashboard backendhez ──────────
+// ── GET /subjects — tantárgyak lekérése (támogatja a language filtert!) ──
 app.get('/subjects', async (req, res) => {
   try {
+    const languageFilter = req.query.languages;
+    let filter = {};
+    
+    if (languageFilter) {
+      const languages = languageFilter.split(',');
+      filter = { 'languages.name': { $all: languages } };
+    }
+    
+    const subjects = await Subject.find(filter).sort({ order: 1 });
+    res.json(subjects);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /subjects/sync — tantárgyak szinkronizálása a dashboard backendről ──
+app.get('/subjects/sync', async (req, res) => {
+  try {
     const response = await fetch('https://vedo-ugyved-dashboard-backend.onrender.com/api/dashboard/subjects');
-    const data = await response.json();
-    res.json(data);
+    const dashboardSubjects = await response.json();
+    
+    // Szinkronizáljuk a meglévő tantárgyakat
+    for (const ds of dashboardSubjects) {
+      const existing = await Subject.findOne({ subjectId: ds.subjectId });
+      if (!existing) {
+        // Új tantárgy létrehozása
+        const newSubject = new Subject({
+          subjectId: ds.subjectId,
+          name: ds.subjectName,
+          languages: [],  // Alapértelmezett üres nyelvlista
+          order: ds.order || 0
+        });
+        await newSubject.save();
+        console.log(`Új tantárgy hozzáadva: ${ds.subjectName}`);
+      } else if (existing.name !== ds.subjectName) {
+        // Név frissítése
+        existing.name = ds.subjectName;
+        await existing.save();
+        console.log(`Tantárgy név frissítve: ${ds.subjectName}`);
+      }
+    }
+    
+    res.json({ message: 'Szinkronizáció kész', count: dashboardSubjects.length });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── PUT /subjects/:id/languages — tantárgy nyelveinek frissítése ──
+app.put('/subjects/:id/languages', async (req, res) => {
+  try {
+    const { languages } = req.body; // languages: string[] pl. ["javascript", "java"]
+    const subject = await Subject.findById(req.params.id);
+    if (!subject) return res.status(404).json({ message: 'Tantárgy nem található' });
+    
+    subject.languages = languages.map(lang => ({ name: lang }));
+    await subject.save();
+    
+    res.json({ message: 'Nyelvek frissítve', languages: subject.languages });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -133,4 +194,3 @@ app.delete('/question/:id', async (req, res) => {
 // ── Backend indítása ───────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Backend fut a ${PORT}-as porton`));
-
