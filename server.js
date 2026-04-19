@@ -68,11 +68,22 @@ app.put('/user/subject/:subjectId/question/:questionId', authenticateToken, asyn
   const userId = req.user.userId;
   const { subjectId, questionId } = req.params;
   try {
-    const user = await User.findOneAndUpdate(
-      { _id: userId, 'subjects.subjectid': subjectId },
-      { $addToSet: { 'subjects.$.completed_questions': { question_id: questionId } } },
+    // Először próbáld meg hozzáadni ha már létezik a subject
+    let user = await User.findOneAndUpdate(
+      { _id: userId, "subjects.subjectid": subjectId },
+      { $addToSet: { "subjects.$.completed_questions": { question_id: questionId } } },
       { new: true }
     );
+
+    // Ha nem volt ilyen subject, hozd létre
+    if (!user) {
+      user = await User.findByIdAndUpdate(
+        userId,
+        { $addToSet: { subjects: { subjectid: subjectId, completed_questions: [{ question_id: questionId }] } } },
+        { new: true }
+      );
+    }
+
     if (!user) return res.status(404).json({ message: 'Felhasználó nem található' });
     res.json(user);
   } catch (err) {
