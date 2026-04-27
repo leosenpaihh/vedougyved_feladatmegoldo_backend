@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
+require('dotenv').config({ path: './.env' });
 
-const SECRET = "super-secret-jwt-key-for-dashboard-backend-change-me-2026";
+const secret = process.env.SECRET;
 
 // 🔐 AUTHENTICATION (401)
 function authenticateToken(req, res, next) {
@@ -17,10 +18,7 @@ function authenticateToken(req, res, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, SECRET, {
-      algorithms: ["HS384"]
-    }); //hs256ot mondtak ez, nem tom, decodeolásnál 384 van jelentsen is bármit
-
+    const decoded = jwt.verify(token, Buffer.from(secret,"base64"));
     req.user = decoded;
     next();
   } catch (err) {
