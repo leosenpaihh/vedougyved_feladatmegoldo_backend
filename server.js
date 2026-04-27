@@ -7,56 +7,66 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// MongoDB kapcsolat
 mongoose.connect(process.env.MONGO_URI, { dbName: 'Vedougyved' })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// ── Schemák ──────────────────────────────────────────────
+// ── Schemák ────────────────────────────────────────────────
 const FeladatSchema = new mongoose.Schema({
-  subjectId: String,
+  lessonId:  String,
   title:     String,
   question:  String,
   example:   String,
   hint:      String,
   test:      String,
-  point:     { type: Number, default: 0 },  // ← 2.-ből
-  order:     { type: Number, default: 0 }   // ← 2.-ből
+  order:     Number,
+  point:     Number,
 });
 const Feladat = mongoose.model('Feladat', FeladatSchema, 'questions');
 
 const SubjectSchema = new mongoose.Schema({
-  name:      { type: String, required: true },
-  languages: [{ name: String }],
-  imageURL:  { type: String, default: '' },
-  order:     { type: Number, default: 0 }
+  name: { type: String, required: true }
 });
 const Subject = mongoose.model('Subject', SubjectSchema, 'subjects');
 
+const LessonSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  subjectId: { type: String, required: true },
+});
+const Lesson = mongoose.model('Lesson', LessonSchema, 'lessons');
+
 const CompletedQuestionSchema = new mongoose.Schema({
-  question_id: String
+  question_id: String,
+  point: Number,
+  solution: String,
+  attempts: { type: Number, default: 0 },
+  usedHint: { type: Boolean, default: false }
 }, { _id: false });
-const SubjectsObjectSchema = new mongoose.Schema({
-  subjectid: String,
-  completed_questions: [CompletedQuestionSchema]
-}, { _id: false });
+
 const UserSchema = new mongoose.Schema({
   first_name: String,
-  last_name:  String,
-  email:      String,
-  password:   String,
-  teacher:    Boolean,
-  subjects:   [SubjectsObjectSchema],
-  _class:     String
+  last_name: String,
+  email: String,
+  password: String,
+  teacher: Boolean,
+  _class: String,
+  subjects: Array,
+  lessons: Array,
+  completed_questions: [CompletedQuestionSchema]
 });
 const User = mongoose.model('User', UserSchema, 'users');
 
-// ── Health check ─────────────────────────────────────────
-app.get('/', (req, res) => res.json({ statusz: 'működik' }));
 
-// ── User endpoints ────────────────────────────────────────
-app.get('/user', authenticateToken, async (req, res) => {
+// ── GET / — health check ───────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({ statusz: 'működik' });
+});
+
+// ha akarnánk profil gombot maybe kéne ez, egyelőre itt marad placeholdernek
+app.get("/user", authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('-password');
+    const user = await User.findById(req.user.userId).select("-password");
     if (!user) return res.status(404).json({ message: 'Felhasználó nem található' });
     res.json(user);
   } catch (err) {
@@ -64,81 +74,90 @@ app.get('/user', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/user/subject/:subjectId/question/:questionId', authenticateToken, async (req, res) => {
-  const userId = req.user.userId;
-  const { subjectId, questionId } = req.params;
-  try {
-    // Először próbáld meg hozzáadni ha már létezik a subject
-    let user = await User.findOneAndUpdate(
-      { _id: userId, "subjects.subjectid": subjectId },
-      { $addToSet: { "subjects.$.completed_questions": { question_id: questionId } } },
-      { new: true }
-    );
+///////////////////////////////////////////////////////////////
+/// pontozás és eredmény mentés, lehet rossz lehet nem IDK
+///////////////////////////////////////////////////////////////
+app.put(
+  "/user/question/:questionId",
+  authenticateToken,
+  async (req, res) => {
 
-    // Ha nem volt ilyen subject, hozd létre
-    if (!user) {
-      user = await User.findByIdAndUpdate(
-        userId,
-        { $addToSet: { subjects: { subjectid: subjectId, completed_questions: [{ question_id: questionId }] } } },
-        { new: true }
+    const userId = req.user.userId;
+    const { questionId } = req.params;
+    const { solution, usedHint } = req.body;
+
+    try {
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const question = await Question.findById(questionId); // fontos!
+      if (!question) {
+        return res.status(404).json({ message: "Question not found" });
+      }
+
+      let entry = user.completed_questions.find(
+        q => q.question_id === questionId
       );
+
+      if (!entry) {
+        // első próbálkozás
+        entry = {
+          question_id: questionId,
+          solution,
+          attempts: 1,
+          usedHint: !!usedHint,
+          point: question.point // max pont kezdetben
+        };
+
+        user.completed_questions.push(entry);
+      } else {
+        // új próbálkozás
+        entry.attempts += 1;
+        entry.solution = solution;
+
+        if (usedHint) {
+          entry.usedHint = true;
+        }
+      }
+
+      // PONT SZÁMOLÁS BACKENDEN
+      let points = question.point;
+
+      if (entry.attempts > 1) {
+        points -= (entry.attempts - 1) * 10;
+      }
+
+      if (entry.usedHint) {
+        points -= 20;
+      }
+
+      //csak 10ig lehet lemenni
+      entry.point = Math.max(points, 10);
+
+      await user.save();
+
+      res.json(entry);
+
+    } catch (err) {
+      res.status(500).json({ message: err.message });
     }
-
-    if (!user) return res.status(404).json({ message: 'Felhasználó nem található' });
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
   }
-});
+);
 
-// ── Subjects endpoints ────────────────────────────────────
+
+// ── GET /subjects — tantárgyak lekérdezése ──────────
 app.get('/subjects', async (req, res) => {
   try {
-    const languageFilter = req.query.languages;
-    let filter = {};
-    if (languageFilter) {
-      const languages = languageFilter.split(',');
-      filter = { 'languages.name': { $all: languages } };
-    }
-    const subjects = await Subject.find(filter).sort({ order: 1 });
-    res.json(subjects);
+    const tantargyak = await Subject.find();
+    res.json(tantargyak);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-app.get('/subjects/sync', async (req, res) => {
-  try {
-    const response = await fetch('https://vedo-ugyved-dashboard-backend.onrender.com/api/dashboard/subjects');
-    const dashboardSubjects = await response.json();
-    for (const ds of dashboardSubjects) {
-      const existing = await Subject.findOne({ _id: ds.subjectId });
-      if (!existing) {
-        await new Subject({ _id: ds.subjectId, name: ds.subjectName, order: ds.order || 0 }).save();
-      } else if (existing.name !== ds.subjectName) {
-        existing.name = ds.subjectName;
-        await existing.save();
-      }
-    }
-    res.json({ message: 'Szinkronizáció kész', count: dashboardSubjects.length });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-app.put('/subjects/:id/languages', async (req, res) => {
-  try {
-    const { languages } = req.body;
-    const subject = await Subject.findById(req.params.id);
-    if (!subject) return res.status(404).json({ message: 'Tantárgy nem található' });
-    subject.languages = languages.map(lang => ({ name: lang }));
-    await subject.save();
-    res.json({ message: 'Nyelvek frissítve', languages: subject.languages });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
+// ── POST /subjects — új tantárgy létrehozása ──────────────
 app.post('/subjects', async (req, res) => {
   try {
     const ujSubject = new Subject(req.body);
@@ -149,6 +168,7 @@ app.post('/subjects', async (req, res) => {
   }
 });
 
+// ── PUT /subjects/:id — tantárgy frissítése ───────────────
 app.put('/subjects/:id', async (req, res) => {
   try {
     const subject = await Subject.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -159,6 +179,7 @@ app.put('/subjects/:id', async (req, res) => {
   }
 });
 
+// ── DELETE /subjects/:id — tantárgy törlése ───────────────
 app.delete('/subjects/:id', async (req, res) => {
   try {
     const subject = await Subject.findByIdAndDelete(req.params.id);
@@ -169,7 +190,19 @@ app.delete('/subjects/:id', async (req, res) => {
   }
 });
 
-// ── Question endpoints ────────────────────────────────────
+// ── GET /lessons — proxy a Dashboard backendhez ──────────
+app.get('/lessons', async (req, res) => {
+  try {
+    const lessons = await Lesson.find();
+    res.json(lessons);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+
+// ── GET /question — összes feladat ────────────────────────
 app.get('/question', async (req, res) => {
   try {
     const feladatok = await Feladat.find();
@@ -179,6 +212,7 @@ app.get('/question', async (req, res) => {
   }
 });
 
+// ── GET /question/:id — egy feladat id alapján ────────────
 app.get('/question/:id', async (req, res) => {
   try {
     const feladat = await Feladat.findById(req.params.id);
@@ -189,6 +223,7 @@ app.get('/question/:id', async (req, res) => {
   }
 });
 
+// ── POST /question — új feladat feltöltése ────────────────
 app.post('/question', async (req, res) => {
   try {
     const ujFeladat = new Feladat(req.body);
@@ -199,6 +234,7 @@ app.post('/question', async (req, res) => {
   }
 });
 
+// ── PUT /question/:id — feladat frissítése ────────────────
 app.put('/question/:id', async (req, res) => {
   try {
     const feladat = await Feladat.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -209,6 +245,7 @@ app.put('/question/:id', async (req, res) => {
   }
 });
 
+// ── DELETE /question/:id — feladat törlése ────────────────
 app.delete('/question/:id', async (req, res) => {
   try {
     const feladat = await Feladat.findByIdAndDelete(req.params.id);
@@ -219,6 +256,32 @@ app.delete('/question/:id', async (req, res) => {
   }
 });
 
-// ── Indítás ───────────────────────────────────────────────
+
+app.delete("/user/lesson/:lessonId/questions", authenticateToken, async (req, res) => {
+  const userId = req.user.userId;
+  const { lessonId } = req.params;
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 1. get questions for lesson
+    const questions = await Feladat.find({ lessonId });
+    const questionIds = questions.map(q => q._id.toString());
+
+    // 2. remove them from completed_questions
+    user.completed_questions = user.completed_questions.filter(
+      q => !questionIds.includes(q.question_id)
+    );
+
+    await user.save();
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── Backend indítása ───────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Backend fut a ${PORT}-as porton`));
