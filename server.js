@@ -3,6 +3,9 @@ require('dotenv').config({ path: './.env' });
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+
+const KIERTEKELO_URL = process.env.KIERTEKELO_URL || console.error("KIERTEKELO_URL nincs beallitva!!!");
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -13,7 +16,7 @@ mongoose.connect(process.env.MONGO_URI, { dbName: 'Vedougyved' })
   .catch(err => console.error('MongoDB connection error:', err));
 
 // ── Schemák ────────────────────────────────────────────────
-const FeladatSchema = new mongoose.Schema({
+const QuestionSchema = new mongoose.Schema({
   lessonId:  String,
   title:     String,
   question:  String,
@@ -23,7 +26,7 @@ const FeladatSchema = new mongoose.Schema({
   order:     Number,
   point:     Number,
 });
-const Feladat = mongoose.model('Feladat', FeladatSchema, 'questions');
+const Question = mongoose.model('Question', QuestionSchema, 'questions');
 
 const SubjectSchema = new mongoose.Schema({
   name: { type: String, required: true }
@@ -205,8 +208,8 @@ app.get('/lessons', async (req, res) => {
 // ── GET /question — összes feladat ────────────────────────
 app.get('/question', async (req, res) => {
   try {
-    const feladatok = await Feladat.find();
-    res.json(feladatok);
+    const questions = await Question.find();
+    res.json(questions);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -215,9 +218,9 @@ app.get('/question', async (req, res) => {
 // ── GET /question/:id — egy feladat id alapján ────────────
 app.get('/question/:id', async (req, res) => {
   try {
-    const feladat = await Feladat.findById(req.params.id);
-    if (!feladat) return res.status(404).json({ message: 'Feladat nem található' });
-    res.json(feladat);
+    const question = await Question.findById(req.params.id);
+    if (!question) return res.status(404).json({ message: 'Feladat nem található' });
+    res.json(question);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -226,9 +229,9 @@ app.get('/question/:id', async (req, res) => {
 // ── POST /question — új feladat feltöltése ────────────────
 app.post('/question', async (req, res) => {
   try {
-    const ujFeladat = new Feladat(req.body);
-    await ujFeladat.save();
-    res.json(ujFeladat);
+    const newQuestion = new Question(req.body);
+    await newQuestion.save();
+    res.json(newQuestion);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -237,9 +240,9 @@ app.post('/question', async (req, res) => {
 // ── PUT /question/:id — feladat frissítése ────────────────
 app.put('/question/:id', async (req, res) => {
   try {
-    const feladat = await Feladat.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!feladat) return res.status(404).json({ message: 'Feladat nem található' });
-    res.json(feladat);
+    const question = await Question.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!question) return res.status(404).json({ message: 'Feladat nem található' });
+    res.json(question);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -248,14 +251,13 @@ app.put('/question/:id', async (req, res) => {
 // ── DELETE /question/:id — feladat törlése ────────────────
 app.delete('/question/:id', async (req, res) => {
   try {
-    const feladat = await Feladat.findByIdAndDelete(req.params.id);
-    if (!feladat) return res.status(404).json({ message: 'Feladat nem található' });
+    const question = await Question.findByIdAndDelete(req.params.id);
+    if (!question) return res.status(404).json({ message: 'Feladat nem található' });
     res.json({ message: 'Feladat törölve', id: req.params.id });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
-
 
 app.delete("/user/lesson/:lessonId/questions", authenticateToken, async (req, res) => {
   const userId = req.user.userId;
@@ -266,7 +268,7 @@ app.delete("/user/lesson/:lessonId/questions", authenticateToken, async (req, re
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // 1. get questions for lesson
-    const questions = await Feladat.find({ lessonId });
+    const questions = await Question.find({ lessonId });
     const questionIds = questions.map(q => q._id.toString());
 
     // 2. remove them from completed_questions
@@ -280,6 +282,34 @@ app.delete("/user/lesson/:lessonId/questions", authenticateToken, async (req, re
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+});
+
+app.post("/execute", async (req, res) => {
+  const resp = await fetch(`${KIERTEKELO_URL}/execute`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": req.header("authorization"),
+    },
+    body: JSON.stringify(req.body),
+  });
+  const result = await resp.json();
+
+  res.json(result);
+});
+
+app.post("/test", async (req, res) => {
+  const resp = await fetch(`${KIERTEKELO_URL}/test`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": req.header("authorization"),
+    },
+    body: JSON.stringify(req.body),
+  });
+  const result = await resp.json();
+
+  res.json(result);
 });
 
 // ── Backend indítása ───────────────────────────────────────
