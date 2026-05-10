@@ -17,7 +17,7 @@ mongoose.connect(process.env.MONGO_URI, { dbName: 'Vedougyved' })
 
 // ── Schemák ────────────────────────────────────────────────
 const QuestionSchema = new mongoose.Schema({
-  lessonId:  String,
+  lessonId:  mongoose.Schema.Types.ObjectId,
   title:     String,
   question:  String,
   example:   String,
@@ -84,10 +84,9 @@ app.put(
   "/user/question/:questionId",
   authenticateToken,
   async (req, res) => {
-
     const userId = req.user.userId;
     const { questionId } = req.params;
-    const { solution, usedHint } = req.body;
+    const { solution, usedHint, attempts} = req.body;
 
     try {
       const user = await User.findById(userId);
@@ -95,7 +94,7 @@ app.put(
         return res.status(404).json({ message: "User not found" });
       }
 
-      const question = await Question.findById(questionId); // fontos!
+      const question = await Question.findById(questionId);
       if (!question) {
         return res.status(404).json({ message: "Question not found" });
       }
@@ -104,30 +103,26 @@ app.put(
         q => q.question_id === questionId
       );
 
+      let isNewEntry = false;
       if (!entry) {
-        // első próbálkozás
+        isNewEntry = true;
         entry = {
           question_id: questionId,
           solution,
-          attempts: 1,
-          usedHint: !!usedHint,
-          point: question.point // max pont kezdetben
+          attempts: attempts,
+          usedHint: usedHint,
+          point: question.point
         };
-
-        user.completed_questions.push(entry);
       } else {
-        // új próbálkozás
-        entry.attempts += 1;
+        entry.attempts = attempts;
         entry.solution = solution;
-
-        if (usedHint) {
-          entry.usedHint = true;
-        }
+        entry.usedHint = entry.usedHint || usedHint;
       }
 
-      // PONT SZÁMOLÁS BACKENDEN
+      // -------------------------
+      // SCORE (ALWAYS RUNS)
+      // -------------------------
       let points = question.point;
-
       if (entry.attempts > 1) {
         points -= (entry.attempts - 1) * 10;
       }
@@ -136,15 +131,18 @@ app.put(
         points -= 20;
       }
 
-      //csak 10ig lehet lemenni
       entry.point = Math.max(points, 10);
+      user.markModified("completed_questions");
+      if(isNewEntry){
+        user.completed_questions.push(entry);
+      }
 
       await user.save();
 
-      res.json(entry);
+      return res.json(entry);
 
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      return res.status(500).json({ message: err.message });
     }
   }
 );
@@ -273,7 +271,7 @@ app.delete("/user/lesson/:lessonId/questions", authenticateToken, async (req, re
 
     // 2. remove them from completed_questions
     user.completed_questions = user.completed_questions.filter(
-      q => !questionIds.includes(q.question_id)
+      q => !questionIds.includes(q.question_id.toString())
     );
 
     await user.save();
